@@ -95,6 +95,10 @@ python -m scheduler --once
 
 ค่าเริ่มต้นของ scheduler คือ `POLY_DRY_RUN=true` ดังนั้น order ที่ผ่าน gate จะถูก log เป็น `dry_run` แทนการส่งคำสั่งจริง ตั้ง `POLY_DRY_RUN=false` เฉพาะตอนพร้อมเทรดจริงแล้วเท่านั้น
 
+Buy gates เริ่มต้นต้องมี TAF TX, target bin match กับตลาด, `yes_price <= 0.65`, estimate ไม่ใกล้ boundary, ไม่เคย trade slug เดียวกัน, ไม่เกิน daily loss และเหลือเวลาพอถึง resolve
+
+เมื่อรัน `python -m scheduler` scheduler จะยิง normal cycle หนึ่งรอบทันที แล้วจึงรอรอบ job ถัดไปตาม schedule และ log heartbeat ทุก 60 วินาทีเพื่อบอกว่ายังทำงานอยู่ ปรับได้ด้วย `SCHEDULER_HEARTBEAT_SECONDS` และปิด startup cycle ได้ด้วย `SCHEDULER_RUN_ON_START=false`
+
 ### 5b. Run ทุกอย่างผ่าน Docker (production)
 
 ```bash

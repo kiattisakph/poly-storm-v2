@@ -37,6 +37,7 @@ def get_market_bins(
 
     slug = build_slug(config.slug_pattern, date)
     url = f"{GAMMA_API}/{slug}"
+    logger.info(f"[market] slug={slug}")
     logger.info(f"[market] GET {url}")
 
     try:

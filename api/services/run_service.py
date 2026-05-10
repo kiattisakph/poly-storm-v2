@@ -11,7 +11,7 @@ def get_latest_runs(conn, city_id: str | None, limit: int) -> list[dict]:
         SELECT
             r.id, r.taf_raw, r.tx_temp, r.tn_temp,
             r.metar_temp, r.wind_dir, r.action, r.note,
-            r.created_at,
+            r.updated_date, r.created_at,
             c.name AS city_name, c.station
         FROM run_logs r
         JOIN cities c ON c.id = r.city_id

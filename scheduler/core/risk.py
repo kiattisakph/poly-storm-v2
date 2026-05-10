@@ -7,7 +7,7 @@ import logging
 import pytz
 from datetime import datetime, timezone
 
-from scheduler.config import DAILY_LOSS_LIMIT_USD, MIN_HOURS_TO_RESOLVE
+from scheduler.config import DAILY_LOSS_LIMIT_USD, MAX_YES_PRICE, MIN_HOURS_TO_RESOLVE
 from scheduler.models import MarketBin
 
 logger = logging.getLogger(__name__)
@@ -81,8 +81,8 @@ def check_risk(
         logger.warning(f"[risk] BLOCK — {reason}")
         return False, reason
 
-    if market_bin.yes_price > 0.90:
-        reason = f"yes price too high: {market_bin.yes_price:.2f}"
+    if market_bin.yes_price > MAX_YES_PRICE:
+        reason = f"yes price too high: {market_bin.yes_price:.2f} > {MAX_YES_PRICE:.2f}"
         logger.warning(f"[risk] BLOCK — {reason}")
         return False, reason
 

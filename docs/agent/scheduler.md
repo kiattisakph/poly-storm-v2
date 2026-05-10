@@ -41,6 +41,12 @@ Inside Docker, services must keep using `db:5432`.
 - `python -m scheduler --force`: with `--once`, treat as TAF-triggered.
 - `python -m scheduler --resolve-once`: run resolver once and exit.
 
+Long-running mode runs one normal cycle immediately by default, then continues
+with scheduled jobs. Disable the startup cycle with `SCHEDULER_RUN_ON_START=false`.
+It also logs a startup summary, next run times, and a periodic heartbeat. The
+heartbeat interval is controlled by `SCHEDULER_HEARTBEAT_SECONDS`; set it to
+`0` to disable.
+
 ## Scheduled Jobs
 
 - `normal`: every 30 minutes.
@@ -53,6 +59,13 @@ Inside Docker, services must keep using `db:5432`.
 - `POLY_DRY_RUN=true` logs the intended order and returns a dry-run response.
 - Dry-run trades are logged with status `dry_run`.
 - `POLY_DRY_RUN=false` can place live orders if credentials are valid.
+- Buy gates require TAF TX, a matching target market bin, YES price at or below
+  `MAX_YES_PRICE`, and enough distance from the bin boundary.
+- Each cycle builds a city-local market slug from `market_configs.slug_pattern`.
+- Before fetching market data, the scheduler checks `trades.market_slug` for
+  existing `open`, `dry_run`, `won`, or `lost` trades and skips that slug.
+- If no trade exists for the slug, it fetches forecast data and Gamma market
+  bins. Entry gate can still block execution after the market fetch.
 
 Do not run live trading paths without explicit user approval.
 
@@ -81,6 +94,14 @@ Primary tables:
 - `market_configs`
 - `trades`
 - `run_logs`
+
+The `trades.market_slug` column identifies the exact Polymarket event slug used
+for duplicate-trade checks.
+
+`run_logs.updated_date` tracks log update time. `taf_raw`, `tx_temp`, and
+`tn_temp` are only populated when the TX/TN pair changes for the same
+`city_id + market_config_id`; repeated values are stored as `NULL` on normal
+action log rows.
 
 Seeded cities:
 
@@ -118,6 +139,8 @@ entire scheduler cycle where avoidable.
 ## Common Pitfalls
 
 - `python -m scheduler` starts a blocking loop; use `--once` for smoke tests.
+- If long-running mode appears idle, check whether `SCHEDULER_RUN_ON_START` is
+  disabled, then check next-run and heartbeat logs before assuming it is stuck.
 - A healthy DB container does not guarantee schema exists for local venv runs.
 - TAF fetch can succeed but have no TX field, especially for Singapore.
 - Resolver updates open trades; avoid running it against production-like data

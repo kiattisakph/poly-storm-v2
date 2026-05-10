@@ -15,6 +15,28 @@ def get_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
 
 
+def ensure_runtime_schema(conn):
+    """Apply lightweight runtime-safe schema additions for existing dev DBs."""
+    cur = conn.cursor()
+    cur.execute("""
+        ALTER TABLE trades
+        ADD COLUMN IF NOT EXISTS market_slug VARCHAR(200)
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_trades_market_slug
+        ON trades (city_id, market_config_id, market_slug, status)
+    """)
+    cur.execute("""
+        ALTER TABLE run_logs
+        ADD COLUMN IF NOT EXISTS updated_date TIMESTAMPTZ DEFAULT NOW()
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_run_logs_taf_values
+        ON run_logs (city_id, market_config_id, updated_date DESC, created_at DESC)
+    """)
+    conn.commit()
+
+
 def load_active_cities(conn) -> list[City]:
     cur = conn.cursor()
     cur.execute("""
@@ -62,6 +84,44 @@ def save_last_taf(conn, city_id: UUID, taf_raw: str):
     conn.commit()
 
 
+def _get_last_taf_values_for_market(
+    conn,
+    city_id: UUID,
+    market_config_id: UUID,
+) -> tuple[float | None, float | None] | None:
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT tx_temp, tn_temp
+        FROM run_logs
+        WHERE city_id = %s
+          AND market_config_id = %s
+          AND (tx_temp IS NOT NULL OR tn_temp IS NOT NULL)
+        ORDER BY updated_date DESC, created_at DESC
+        LIMIT 1
+    """, (str(city_id), str(market_config_id)))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return row["tx_temp"], row["tn_temp"]
+
+
+def _taf_values_changed(
+    conn,
+    city_id: UUID,
+    market_config_id: UUID,
+    tx_temp: float | None,
+    tn_temp: float | None,
+) -> bool:
+    if tx_temp is None and tn_temp is None:
+        return False
+
+    last = _get_last_taf_values_for_market(conn, city_id, market_config_id)
+    if last is None:
+        return True
+
+    return last != (tx_temp, tn_temp)
+
+
 def get_open_trade(conn, city_id: UUID, market_config_id: UUID, market_id: str) -> dict | None:
     cur = conn.cursor()
     cur.execute("""
@@ -76,11 +136,32 @@ def get_open_trade(conn, city_id: UUID, market_config_id: UUID, market_id: str) 
     return cur.fetchone()
 
 
+def get_existing_trade_for_slug(
+    conn,
+    city_id: UUID,
+    market_config_id: UUID,
+    market_slug: str,
+) -> dict | None:
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, market_id, market_slug, bin_label, yes_price,
+               amount_usd, status, created_at
+        FROM trades
+        WHERE city_id = %s
+          AND market_config_id = %s
+          AND market_slug = %s
+          AND status IN ('open', 'dry_run', 'won', 'lost')
+        ORDER BY created_at DESC LIMIT 1
+    """, (str(city_id), str(market_config_id), market_slug))
+    return cur.fetchone()
+
+
 def log_trade(
     conn,
     city_id: UUID,
     market_config_id: UUID,
     market_id: str,
+    market_slug: str,
     bin_label: str,
     temp_estimate: float,
     yes_price: float,
@@ -90,10 +171,10 @@ def log_trade(
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO trades
-            (city_id, market_config_id, market_id, bin_label,
+            (city_id, market_config_id, market_id, market_slug, bin_label,
              temp_estimate, yes_price, amount_usd, status, skip_reason)
-        VALUES (%s, %s, %s, %s, %s, %s, 2.0, %s, %s)
-    """, (str(city_id), str(market_config_id), market_id, bin_label,
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 2.0, %s, %s)
+    """, (str(city_id), str(market_config_id), market_id, market_slug, bin_label,
           temp_estimate, yes_price, status, skip_reason))
     conn.commit()
 
@@ -110,12 +191,17 @@ def log_run(
     action: str,
     note: str = None,
 ):
+    if not _taf_values_changed(conn, city_id, market_config_id, tx_temp, tn_temp):
+        taf_raw = None
+        tx_temp = None
+        tn_temp = None
+
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO run_logs
             (city_id, market_config_id, taf_raw, tx_temp, tn_temp,
-             metar_temp, wind_dir, action, note)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+             metar_temp, wind_dir, action, note, updated_date)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
     """, (str(city_id), str(market_config_id), taf_raw, tx_temp, tn_temp,
           metar_temp, wind_dir, action, note))
     conn.commit()

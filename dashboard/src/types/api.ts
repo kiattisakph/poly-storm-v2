@@ -44,6 +44,7 @@ export interface RunLog {
   wind_dir: number | null
   action: string | null
   note: string | null
+  updated_date?: string | null
   created_at: string
 }
 

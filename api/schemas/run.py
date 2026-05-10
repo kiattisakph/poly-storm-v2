@@ -14,6 +14,7 @@ class RunLogResponse(BaseModel):
     wind_dir: int | None
     action: str | None
     note: str | None
+    updated_date: datetime | None
     created_at: datetime
 
     class Config:
