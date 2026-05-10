@@ -4,6 +4,7 @@ from scheduler.models.domain import City, CitySource
 
 class CityStrategy(ABC):
     city_code: str  # must match cities.strategy_code in DB
+    requires_taf_entry: bool = True
 
     @abstractmethod
     def estimate(self, city: City, sources: list[CitySource]) -> float | None:

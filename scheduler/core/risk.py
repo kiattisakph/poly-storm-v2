@@ -20,6 +20,7 @@ def check_entry_gate(
     taf_changed: bool,
     triggered_by_taf: bool,
     city_timezone: str,
+    require_taf: bool = True,
 ) -> tuple[bool, str]:
     """
     Entry gate rules:
@@ -27,7 +28,7 @@ def check_entry_gate(
     2. If TAF changed (triggered_by_taf) → immediate entry
     3. Otherwise → only allowed in time windows
     """
-    if taf is None or taf.tx_temp is None:
+    if require_taf and (taf is None or taf.tx_temp is None):
         return False, "no TAF TX available — model-only, skip"
 
     if triggered_by_taf and taf_changed:

@@ -5,6 +5,18 @@ Centralized configuration and constants.
 
 import os
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 # ─── Database ─────────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
@@ -19,3 +31,4 @@ POLY_PASSPHRASE = os.environ.get("POLY_PASSPHRASE", "")
 BET_AMOUNT = 2.0  # USD per bet
 DAILY_LOSS_LIMIT_USD = 10.0
 MIN_HOURS_TO_RESOLVE = 1.0
+POLY_DRY_RUN = _env_bool("POLY_DRY_RUN", True)

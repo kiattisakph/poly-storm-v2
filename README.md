@@ -85,6 +85,16 @@ docker compose up -d db
 python -m scheduler
 ```
 
+Smoke test แบบไม่ยิง order จริง:
+
+```bash
+python -m scheduler --help
+python -m scheduler --list-jobs
+python -m scheduler --once
+```
+
+ค่าเริ่มต้นของ scheduler คือ `POLY_DRY_RUN=true` ดังนั้น order ที่ผ่าน gate จะถูก log เป็น `dry_run` แทนการส่งคำสั่งจริง ตั้ง `POLY_DRY_RUN=false` เฉพาะตอนพร้อมเทรดจริงแล้วเท่านั้น
+
 ### 5b. Run ทุกอย่างผ่าน Docker (production)
 
 ```bash
@@ -122,7 +132,7 @@ docker compose up -d
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `db` | 5432 | PostgreSQL 16 — auto-init จาก `db/Init.sql` |
+| `db` | 5433 → 5432 | PostgreSQL 16 — auto-init จาก `db/Init.sql` |
 | `scheduler` | — | APScheduler jobs (trading + resolver) |
 | `api` | 8000 | FastAPI REST backend |
 | `dashboard` | 3000 | React SPA via Nginx (proxy `/api/` → api) |

@@ -3,6 +3,7 @@ __main__.py — STORM v2 scheduler entrypoint
 Run with: python -m scheduler
 """
 
+import argparse
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -77,6 +78,7 @@ def run_cycle(force: bool = False):
             taf_changed=taf_changed,
             triggered_by_taf=triggered_by_taf,
             city_timezone=city.timezone,
+            require_taf=getattr(strategy, "requires_taf_entry", True),
         )
 
         if not gate_passed:
@@ -150,7 +152,7 @@ def run_cycle(force: bool = False):
 
             # ── execute ───────────────────────────────────────────────────
             result = buy_yes(target_bin)
-            status = "open" if result else "failed"
+            status = _order_status(result)
             log_trade(conn, city.id, mc.id, target_bin.market_id,
                       target_bin.label, raw_temp, target_bin.yes_price, status)
             log_run(conn, city.id, mc.id,
@@ -159,7 +161,7 @@ def run_cycle(force: bool = False):
                     taf.tn_temp if taf else None,
                     None, None, "executed",
                     f"bin={target_bin.label} price={target_bin.yes_price} "
-                    f"taf_triggered={triggered_by_taf}")
+                    f"taf_triggered={triggered_by_taf} status={status}")
 
     conn.close()
     logger.info("=== cycle end ===")
@@ -194,6 +196,14 @@ def _get_resolve_time(city) -> datetime:
     return resolve
 
 
+def _order_status(result: dict | None) -> str:
+    if not result:
+        return "failed"
+    if result.get("dry_run"):
+        return "dry_run"
+    return "open"
+
+
 # ── scheduler setup ───────────────────────────────────────────────────────────
 
 def run_normal():
@@ -209,7 +219,7 @@ def run_resolve():
     run_resolver()
 
 
-if __name__ == "__main__":
+def build_scheduler() -> BlockingScheduler:
     scheduler = BlockingScheduler(timezone="UTC")
 
     # normal cycle every 30 min
@@ -240,5 +250,52 @@ if __name__ == "__main__":
     scheduler.add_job(run_taf_window, "cron",
                       hour=18, minute="0,5,10,15", id="taf_1800")
 
+    return scheduler
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="STORM v2 scheduler")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="run one normal scheduler cycle and exit",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="with --once, treat the cycle as TAF-triggered",
+    )
+    parser.add_argument(
+        "--resolve-once",
+        action="store_true",
+        help="run resolver once and exit",
+    )
+    parser.add_argument(
+        "--list-jobs",
+        action="store_true",
+        help="print configured job ids and exit",
+    )
+    args = parser.parse_args(argv)
+
+    if args.once:
+        run_cycle(force=args.force)
+        return 0
+
+    if args.resolve_once:
+        run_resolve()
+        return 0
+
+    scheduler = build_scheduler()
+
+    if args.list_jobs:
+        for job in scheduler.get_jobs():
+            print(f"{job.id}: {job.trigger}")
+        return 0
+
     logger.info("STORM v2 starting...")
     scheduler.start()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -2,14 +2,14 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: storm
+      POSTGRES_DB: StormDB
       POSTGRES_USER: storm
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/Init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "${DB_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U storm"]
       interval: 10s
@@ -25,6 +25,7 @@ services:
       POLY_API_KEY: ${POLY_API_KEY}
       POLY_SECRET: ${POLY_SECRET}
       POLY_PASSPHRASE: ${POLY_PASSPHRASE}
+      POLY_DRY_RUN: ${POLY_DRY_RUN:-true}
     depends_on:
       db:
         condition: service_healthy

@@ -18,6 +18,7 @@ from scheduler.config import (
     BET_AMOUNT,
     PRIVATE_KEY,
     DEPOSIT_WALLET_ADDRESS,
+    POLY_DRY_RUN,
     POLY_API_KEY,
     POLY_SECRET,
     POLY_PASSPHRASE,
@@ -28,6 +29,19 @@ logger = logging.getLogger(__name__)
 
 def _build_client() -> ClobClient:
     """Construct authenticated ClobClient."""
+    missing = [
+        name for name, value in {
+            "PRIVATE_KEY": PRIVATE_KEY,
+            "DEPOSIT_WALLET_ADDRESS": DEPOSIT_WALLET_ADDRESS,
+            "POLY_API_KEY": POLY_API_KEY,
+            "POLY_SECRET": POLY_SECRET,
+            "POLY_PASSPHRASE": POLY_PASSPHRASE,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(f"missing Polymarket credentials: {', '.join(missing)}")
+
     creds = ApiCreds(
         api_key=POLY_API_KEY,
         api_secret=POLY_SECRET,
@@ -51,10 +65,25 @@ def buy_yes(target_bin) -> dict | None:
         Order response dict on success, None on failure.
     """
     try:
-        client = _build_client()
-
         shares = BET_AMOUNT / target_bin.yes_price
         shares = max(shares, target_bin.order_min)
+
+        if POLY_DRY_RUN:
+            logger.info(
+                "DRY RUN order: bin=%s price=%.3f shares=%.2f token=%s",
+                target_bin.label,
+                target_bin.yes_price,
+                shares,
+                target_bin.yes_token_id,
+            )
+            return {
+                "dry_run": True,
+                "bin": target_bin.label,
+                "price": target_bin.yes_price,
+                "shares": round(shares, 2),
+            }
+
+        client = _build_client()
 
         tick_size = client.get_tick_size(target_bin.yes_token_id)
 
@@ -112,3 +141,7 @@ def derive_credentials() -> None:
 
     except Exception as e:
         logger.error("Failed to derive credentials: %s", e)
+
+
+if __name__ == "__main__":
+    derive_credentials()

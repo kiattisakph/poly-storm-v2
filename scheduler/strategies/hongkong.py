@@ -36,6 +36,7 @@ TIMEOUT        = 10
 
 class HongKongStrategy(CityStrategy):
     city_code = "HONG_KONG"
+    requires_taf_entry = False
 
     def estimate(self, city: City, sources: list[CitySource]) -> float | None:
         """
