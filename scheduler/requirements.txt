@@ -1,0 +1,9 @@
+# core
+httpx==0.27.0
+apscheduler==3.10.4
+psycopg2-binary==2.9.12
+pytz
+python-dotenv
+
+# polymarket
+py-clob-client-v2

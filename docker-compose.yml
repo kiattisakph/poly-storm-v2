@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: storm
+      POSTGRES_USER: storm
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/Init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  scheduler:
+    build: ./scheduler
+    environment:
+      DATABASE_URL: postgresql://storm:${DB_PASSWORD}@db:5432/storm
+      PRIVATE_KEY: ${PRIVATE_KEY}
+      DEPOSIT_WALLET_ADDRESS: ${DEPOSIT_WALLET_ADDRESS}
+      POLY_API_KEY: ${POLY_API_KEY}
+      POLY_SECRET: ${POLY_SECRET}
+      POLY_PASSPHRASE: ${POLY_PASSPHRASE}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://storm:${DB_PASSWORD}@db:5432/storm
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:

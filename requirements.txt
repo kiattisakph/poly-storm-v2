@@ -1,0 +1,3 @@
+# รวมทุกอย่างสำหรับ local dev และ Kiro
+-r scheduler/requirements.txt
+-r api/requirements.txt
