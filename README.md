@@ -5,28 +5,31 @@ Automated weather prediction trading bot for Polymarket temperature markets. Fet
 ## Architecture
 
 ```
-scheduler/
-├── __main__.py        # APScheduler entrypoint
-├── config.py          # env vars + constants
-├── core/              # business logic
-│   ├── executor.py    # Polymarket order execution
-│   ├── fetcher.py     # TAF/METAR fetch
-│   ├── market.py      # Gamma API + bin matching
-│   ├── estimator.py   # multi-source weighted estimation
-│   ├── risk.py        # entry gate + risk gate
-│   └── resolver.py    # post-resolve PnL settlement
-├── db/                # data layer
-│   └── repository.py  # all SQL queries
-├── models/            # dataclasses
-│   └── domain.py      # City, MarketBin, TAFResult, etc.
-├── sources/           # weather data sources
-│   ├── taf_tx.py      # aviationweather.gov TAF TX
-│   ├── ecmwf.py       # ECMWF via Open-Meteo
-│   └── gfs_kma.py     # GFS + KMA via Open-Meteo
-└── strategies/        # per-city logic
-    ├── seoul.py       # TAF + wind adjustment
-    ├── singapore.py   # NEA + forecast blend
-    └── hongkong.py    # HKO API + TAF fallback
+poly-storm-v2/
+├── scheduler/             # Python — APScheduler background jobs
+│   ├── __main__.py        # entrypoint (python -m scheduler)
+│   ├── config.py          # env vars + constants
+│   ├── core/              # business logic
+│   │   ├── executor.py    # Polymarket order execution
+│   │   ├── fetcher.py     # TAF/METAR fetch
+│   │   ├── market.py      # Gamma API + bin matching
+│   │   ├── estimator.py   # multi-source weighted estimation
+│   │   ├── risk.py        # entry gate + risk gate
+│   │   └── resolver.py    # post-resolve PnL settlement
+│   ├── db/                # data layer
+│   │   └── repository.py  # all SQL queries
+│   ├── models/            # dataclasses
+│   │   └── domain.py      # City, MarketBin, TAFResult, etc.
+│   ├── sources/           # weather data sources
+│   └── strategies/        # per-city logic
+├── api/                   # Python — FastAPI REST backend
+│   └── main.py            # uvicorn entrypoint
+├── dashboard/             # TypeScript — React + Vite SPA
+│   ├── src/               # React components
+│   └── nginx.conf         # production Nginx config (SPA + API proxy)
+├── db/
+│   └── Init.sql           # Postgres schema + seed data
+└── docker-compose.yml     # all services orchestration
 ```
 
 ## Supported Cities
@@ -88,7 +91,7 @@ python -m scheduler
 docker compose up -d
 ```
 
-Services จะ start ตามลำดับ: `db` (wait healthy) → `scheduler` + `api`
+Services จะ start ตามลำดับ: `db` (wait healthy) → `scheduler` + `api` → `dashboard`
 
 ## Scheduler Jobs
 
@@ -111,10 +114,34 @@ Services จะ start ตามลำดับ: `db` (wait healthy) → `schedul
 
 See [`.env.example`](.env.example) for all required variables.
 
-## Docker
+## Docker Services
 
 ```bash
 docker compose up -d
 ```
 
-Runs PostgreSQL + scheduler + API (if configured).
+| Service | Port | Description |
+|---------|------|-------------|
+| `db` | 5432 | PostgreSQL 16 — auto-init จาก `db/Init.sql` |
+| `scheduler` | — | APScheduler jobs (trading + resolver) |
+| `api` | 8000 | FastAPI REST backend |
+| `dashboard` | 3000 | React SPA via Nginx (proxy `/api/` → api) |
+
+## Dashboard
+
+React + Vite + TypeScript SPA สำหรับดู trades, runs, และ city status
+
+### Local dev
+
+```bash
+cd dashboard
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+### Production
+
+Dashboard ถูก build เป็น static files แล้ว serve ผ่าน Nginx ใน Docker
+- Nginx proxy `/api/*` ไปที่ `api:8000` อัตโนมัติ
+- SPA fallback ทุก route ไป `index.html`
