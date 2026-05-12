@@ -18,6 +18,7 @@ from scheduler.config import (
     BET_AMOUNT,
     PRIVATE_KEY,
     DEPOSIT_WALLET_ADDRESS,
+    POLY_SIGNATURE_TYPE,
     POLY_DRY_RUN,
     POLY_API_KEY,
     POLY_SECRET,
@@ -26,13 +27,45 @@ from scheduler.config import (
 
 logger = logging.getLogger(__name__)
 
+SIGNATURE_TYPE_LABELS = {
+    0: "EOA",
+    1: "POLY_PROXY/Magic",
+    2: "POLY_GNOSIS_SAFE/browser-wallet",
+    3: "POLY_1271",
+}
+
+
+def _funder() -> str | None:
+    if POLY_SIGNATURE_TYPE == 0:
+        return DEPOSIT_WALLET_ADDRESS or None
+    if not DEPOSIT_WALLET_ADDRESS:
+        raise RuntimeError(
+            "DEPOSIT_WALLET_ADDRESS is required for "
+            f"POLY_SIGNATURE_TYPE={POLY_SIGNATURE_TYPE}"
+        )
+    return DEPOSIT_WALLET_ADDRESS
+
+
+def _validate_signature_type() -> None:
+    if POLY_SIGNATURE_TYPE not in {0, 1, 2, 3}:
+        raise RuntimeError(
+            "POLY_SIGNATURE_TYPE must be one of 0, 1, 2, or 3 "
+            f"(got {POLY_SIGNATURE_TYPE})"
+        )
+
+
+def _short_address(address: str | None) -> str:
+    if not address:
+        return "none"
+    return f"{address[:6]}…{address[-4:]}"
+
 
 def _build_client() -> ClobClient:
     """Construct authenticated ClobClient."""
+    _validate_signature_type()
     missing = [
         name for name, value in {
             "PRIVATE_KEY": PRIVATE_KEY,
-            "DEPOSIT_WALLET_ADDRESS": DEPOSIT_WALLET_ADDRESS,
             "POLY_API_KEY": POLY_API_KEY,
             "POLY_SECRET": POLY_SECRET,
             "POLY_PASSPHRASE": POLY_PASSPHRASE,
@@ -47,14 +80,23 @@ def _build_client() -> ClobClient:
         api_secret=POLY_SECRET,
         api_passphrase=POLY_PASSPHRASE,
     )
-    return ClobClient(
+    client = ClobClient(
         host="https://clob.polymarket.com",
         chain_id=137,
         key=PRIVATE_KEY,
         creds=creds,
-        signature_type=2,
-        funder=DEPOSIT_WALLET_ADDRESS,
+        signature_type=POLY_SIGNATURE_TYPE,
+        funder=_funder(),
+        use_server_time=True,
     )
+    logger.info(
+        "polymarket client configured: signature_type=%s(%s) signer=%s funder=%s",
+        POLY_SIGNATURE_TYPE,
+        SIGNATURE_TYPE_LABELS.get(POLY_SIGNATURE_TYPE, "unknown"),
+        _short_address(client.signer.address() if client.signer else None),
+        _short_address(client.builder.funder),
+    )
+    return client
 
 
 def buy_yes(target_bin) -> dict | None:
@@ -122,21 +164,31 @@ def derive_credentials() -> None:
     Prints api_key, api_secret, api_passphrase for the user to save to .env.
     """
     try:
+        _validate_signature_type()
         client = ClobClient(
             host="https://clob.polymarket.com",
             key=PRIVATE_KEY,
             chain_id=137,
-            signature_type=0,
-            funder=None,
+            signature_type=POLY_SIGNATURE_TYPE,
+            funder=_funder(),
+            use_server_time=True,
+        )
+        logger.info(
+            "deriving polymarket creds: signature_type=%s(%s) signer=%s funder=%s",
+            POLY_SIGNATURE_TYPE,
+            SIGNATURE_TYPE_LABELS.get(POLY_SIGNATURE_TYPE, "unknown"),
+            _short_address(client.signer.address() if client.signer else None),
+            _short_address(client.builder.funder),
         )
 
-        creds = client.create_or_derive_api_creds()
+        creds = client.create_or_derive_api_key()
 
         print("=== Polymarket L2 API Credentials ===")
         print(f"POLY_API_KEY={creds.api_key}")
         print(f"POLY_SECRET={creds.api_secret}")
         print(f"POLY_PASSPHRASE={creds.api_passphrase}")
         print("=====================================")
+        print(f"Bound to address: {client.signer.address()}")
         print("Save these to your .env file.")
 
     except Exception as e:

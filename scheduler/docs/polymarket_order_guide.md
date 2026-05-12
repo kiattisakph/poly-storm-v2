@@ -18,10 +18,40 @@ client = ClobClient(
     chain_id=137,
     key="0xYourPrivateKey",
     creds=creds,
-    signature_type=2,          # 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE
-    funder="0xProxyWallet",    # ถ้าใช้ proxy wallet
+    signature_type=1,          # 1=Magic/email, 2=browser wallet proxy
+    funder="0xProxyWallet",    # address ที่ถือ funds บน Polymarket
 )
 ```
+
+Signature type ต้องตรงกับ account type:
+
+| Type | ใช้เมื่อไหร่ | funder |
+|------|-------------|--------|
+| `0` | standalone EOA/private wallet | EOA address หรือเว้นว่าง |
+| `1` | Polymarket Magic/email/Google login | proxy wallet address |
+| `2` | browser wallet/embedded wallet proxy | proxy wallet address |
+| `3` | POLY_1271 | contract wallet address |
+
+ถ้า `/order` ตอบ `invalid signature` ให้เช็คสามอย่างนี้ก่อน:
+
+- private key ต้องเป็น key ของ signer ที่ Polymarket account ใช้จริง
+- `signature_type` ต้องตรงกับ account type
+- `funder` ต้องเป็น wallet ที่ถือ funds ใน Polymarket profile
+
+หลังเปลี่ยน `signature_type` หรือ `funder` ให้ derive API credentials ใหม่
+แล้วอัปเดต `POLY_API_KEY`, `POLY_SECRET`, `POLY_PASSPHRASE`.
+
+### Troubleshooting: Order Signer vs API Key Address
+
+CLOB API ต้องการให้ **order signer address ตรงกับ address ที่ผูก API key**
+
+- API key ถูก derive จาก `signer.address()` (private key address) เสมอ
+- `signature_type=0,1,2` → order signer = private key address ✓ (ตรงกับ API key)
+- `signature_type=3` (POLY_1271) → order signer = funder/deposit wallet ✗ (ไม่ตรงกับ API key)
+
+**ถ้าเจอ error `"the order signer address has to be the address of the API KEY"`:**
+แปลว่า signature_type ทำให้ order signer ไม่ตรงกับ address ที่ผูก API key
+→ ใช้ `signature_type=1` (POLY_PROXY) สำหรับ browser wallet / deposit proxy ทั่วไป
 
 ---
 
@@ -140,13 +170,16 @@ client = ClobClient(
     host="https://clob.polymarket.com",
     key="0xYourPrivateKey",
     chain_id=137,
-    signature_type=0,
-    funder=None,
+    signature_type=1,          # ต้องตรงกับ order client
+    funder="0xProxyWallet",    # ใช้ EOA address/None เฉพาะ EOA
 )
 
-creds = client.create_or_derive_api_creds()
+creds = client.create_or_derive_api_key()
 # creds.api_key, creds.api_secret, creds.api_passphrase
 ```
+
+> **หมายเหตุ:** API key จะผูกกับ `signer.address()` (private key address) เสมอ
+> ไม่ว่าจะใช้ signature_type อะไร ดังนั้น order signer ต้องตรงกับ address นี้
 
 ---
 
@@ -160,7 +193,7 @@ creds = client.create_or_derive_api_creds()
 | `client.get_order(order_id)` | ดูสถานะ order |
 | `client.get_orders(OpenOrderParams())` | ดึง open orders ทั้งหมด |
 | `client.get_balance_allowance(params)` | ตรวจ balance/allowance |
-| `client.create_or_derive_api_creds()` | สร้าง API credentials |
+| `client.create_or_derive_api_key()` | สร้าง API credentials |
 
 ---
 
