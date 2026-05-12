@@ -23,8 +23,32 @@ def ensure_runtime_schema(conn):
         ADD COLUMN IF NOT EXISTS market_slug VARCHAR(200)
     """)
     cur.execute("""
+        ALTER TABLE trades
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+    """)
+    cur.execute("""
+        ALTER TABLE trades
+        ADD COLUMN IF NOT EXISTS market_end_date TIMESTAMPTZ
+    """)
+    cur.execute("""
+        ALTER TABLE trades
+        ADD COLUMN IF NOT EXISTS market_date DATE
+    """)
+    cur.execute("""
+        ALTER TABLE trades
+        ALTER COLUMN skip_reason TYPE TEXT
+    """)
+    cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_trades_market_slug
         ON trades (city_id, market_config_id, market_slug, status)
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_trades_market_end_date
+        ON trades (status, market_end_date)
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_trades_market_date
+        ON trades (city_id, market_config_id, market_date, status)
     """)
     cur.execute("""
         ALTER TABLE run_logs
@@ -144,16 +168,66 @@ def get_existing_trade_for_slug(
 ) -> dict | None:
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, market_id, market_slug, bin_label, yes_price,
-               amount_usd, status, created_at
+        SELECT id, market_id, market_slug, market_date, market_end_date, bin_label,
+               temp_estimate, yes_price, amount_usd, status, skip_reason,
+               created_at, resolved_at
         FROM trades
         WHERE city_id = %s
           AND market_config_id = %s
           AND market_slug = %s
           AND status IN ('open', 'dry_run', 'won', 'lost')
-        ORDER BY created_at DESC LIMIT 1
+        ORDER BY updated_at DESC, created_at DESC LIMIT 1
     """, (str(city_id), str(market_config_id), market_slug))
     return cur.fetchone()
+
+
+def get_failed_trade_for_slug(
+    conn,
+    city_id: UUID,
+    market_config_id: UUID,
+    market_slug: str,
+) -> dict | None:
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, market_id, market_slug, market_date, market_end_date, bin_label,
+               temp_estimate, yes_price, amount_usd, status, skip_reason,
+               created_at, resolved_at
+        FROM trades
+        WHERE city_id = %s
+          AND market_config_id = %s
+          AND market_slug = %s
+          AND (
+              (status = 'failed' AND resolved_at IS NULL)
+              OR
+              (status = 'closed' AND skip_reason = 'stale failed trade closed')
+          )
+        ORDER BY updated_at DESC, created_at DESC LIMIT 1
+    """, (str(city_id), str(market_config_id), market_slug))
+    return cur.fetchone()
+
+
+def close_stale_failed_trades(
+    conn,
+    city_id: UUID,
+    market_config_id: UUID,
+    current_market_date,
+) -> int:
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE trades
+        SET status = 'closed',
+            skip_reason = 'stale failed trade closed',
+            resolved_at = NOW(),
+            updated_at = NOW()
+        WHERE city_id = %s
+          AND market_config_id = %s
+          AND status = 'failed'
+          AND resolved_at IS NULL
+          AND market_date IS NOT NULL
+          AND market_date < %s
+    """, (str(city_id), str(market_config_id), current_market_date))
+    conn.commit()
+    return cur.rowcount
 
 
 def log_trade(
@@ -167,15 +241,82 @@ def log_trade(
     yes_price: float,
     status: str,
     skip_reason: str = None,
+    market_end_date: str = None,
+    market_date=None,
 ):
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO trades
-            (city_id, market_config_id, market_id, market_slug, bin_label,
+            (city_id, market_config_id, market_id, market_slug, market_date,
+             market_end_date, bin_label,
              temp_estimate, yes_price, amount_usd, status, skip_reason)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 2.0, %s, %s)
-    """, (str(city_id), str(market_config_id), market_id, market_slug, bin_label,
-          temp_estimate, yes_price, status, skip_reason))
+        VALUES (%s, %s, %s, %s, %s, NULLIF(%s, '')::timestamptz,
+                %s, %s, %s, 2.0, %s, %s)
+    """, (str(city_id), str(market_config_id), market_id, market_slug,
+          market_date, market_end_date, bin_label, temp_estimate, yes_price,
+          status, skip_reason))
+    conn.commit()
+
+
+def update_trade_snapshot(
+    conn,
+    trade_id: UUID,
+    market_id: str,
+    market_slug: str,
+    bin_label: str,
+    temp_estimate: float,
+    yes_price: float,
+    status: str,
+    skip_reason: str = None,
+    market_end_date: str = None,
+    market_date=None,
+):
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE trades
+        SET market_id = %s,
+            market_slug = %s,
+            market_date = COALESCE(%s, market_date),
+            market_end_date = COALESCE(NULLIF(%s, '')::timestamptz, market_end_date),
+            bin_label = %s,
+            temp_estimate = %s,
+            yes_price = %s,
+            status = %s,
+            skip_reason = %s,
+            resolved_at = CASE WHEN %s = 'closed' THEN NOW() ELSE NULL END,
+            updated_at = NOW()
+        WHERE id = %s
+    """, (
+        market_id,
+        market_slug,
+        market_date,
+        market_end_date,
+        bin_label,
+        temp_estimate,
+        yes_price,
+        status,
+        skip_reason,
+        status,
+        str(trade_id),
+    ))
+    conn.commit()
+
+
+def update_trade_status(
+    conn,
+    trade_id: UUID,
+    status: str,
+    skip_reason: str = None,
+):
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE trades
+        SET status = %s,
+            skip_reason = %s,
+            resolved_at = CASE WHEN %s = 'closed' THEN NOW() ELSE resolved_at END,
+            updated_at = NOW()
+        WHERE id = %s
+    """, (status, skip_reason, status, str(trade_id)))
     conn.commit()
 
 

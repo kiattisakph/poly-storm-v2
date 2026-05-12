@@ -17,7 +17,7 @@ export interface Trade {
   temp_estimate: number
   yes_price: number
   amount_usd: number
-  status: "open" | "won" | "lost" | "skipped" | "failed"
+  status: "open" | "won" | "lost" | "skipped" | "failed" | "closed"
   skip_reason: string | null
   pnl: number | null
   created_at: string

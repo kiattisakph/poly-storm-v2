@@ -11,6 +11,10 @@ from scheduler.db.repository import (
     save_last_taf,
     get_open_trade,
     get_existing_trade_for_slug,
+    get_failed_trade_for_slug,
+    close_stale_failed_trades,
+    update_trade_snapshot,
+    update_trade_status,
 )
 
 __all__ = [
@@ -26,4 +30,8 @@ __all__ = [
     "save_last_taf",
     "get_open_trade",
     "get_existing_trade_for_slug",
+    "get_failed_trade_for_slug",
+    "close_stale_failed_trades",
+    "update_trade_snapshot",
+    "update_trade_status",
 ]

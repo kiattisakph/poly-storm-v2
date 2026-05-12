@@ -50,7 +50,7 @@ heartbeat interval is controlled by `SCHEDULER_HEARTBEAT_SECONDS`; set it to
 ## Scheduled Jobs
 
 - `normal`: every 30 minutes.
-- `resolver`: every 30 minutes, offset by 15 minutes.
+- `resolver`: every 5 minutes; resolves trades after Gamma `endDate` plus 5 minutes.
 - `taf_*`: frequent checks around TAF release windows.
 
 ## Trading Behavior
@@ -97,6 +97,11 @@ Primary tables:
 
 The `trades.market_slug` column identifies the exact Polymarket event slug used
 for duplicate-trade checks.
+The `trades.market_date` column stores the Polymarket event date and is used to
+close stale failed rows only when their market date is before the current
+trading day.
+The `trades.market_end_date` column stores Gamma `endDate` and drives resolver
+eligibility.
 
 `run_logs.updated_date` tracks log update time. `taf_raw`, `tx_temp`, and
 `tn_temp` are only populated when the TX/TN pair changes for the same

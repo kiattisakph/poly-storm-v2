@@ -7,12 +7,11 @@ updates trades with won/lost status and PnL.
 """
 
 import logging
-from datetime import datetime, timezone
 
 import httpx
 
-from scheduler.config import BET_AMOUNT
-from scheduler.db import get_conn
+from scheduler.db import ensure_runtime_schema, get_conn
+from scheduler.notifications import notify_resolved
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +22,19 @@ TIMEOUT = 10
 def run_resolver():
     """
     Main resolver loop:
-    1. Fetch open trades past resolve time
+    1. Fetch open/dry-run trades past market end time + 5 minutes
     2. Check if market is resolved on Polymarket
     3. Update trade status + PnL
     """
     logger.info("=== resolver start ===")
     conn = get_conn()
+    ensure_runtime_schema(conn)
 
     try:
-        trades = _get_open_past_resolve(conn)
+        trades = _get_trades_ready_to_resolve(conn)
 
         if not trades:
-            logger.info("[resolver] no open trades past resolve time — skip")
-            conn.close()
+            logger.info("[resolver] no trades ready to resolve — skip")
             return
 
         logger.info(f"[resolver] found {len(trades)} trades to check")
@@ -58,9 +57,9 @@ def _resolve_trade(conn, trade: dict):
     bin_label = trade["bin_label"]
 
     try:
-        # Double-check status hasn't changed (race condition guard)
-        if trade["status"] != "open":
-            logger.warning(f"[resolver] trade {trade_id} no longer open — skip")
+        # Double-check status hasn't changed (race condition guard).
+        if trade["status"] not in ("open", "dry_run"):
+            logger.warning(f"[resolver] trade {trade_id} no longer resolvable — skip")
             return
 
         # Fetch market resolution from Gamma API
@@ -90,6 +89,14 @@ def _resolve_trade(conn, trade: dict):
 
         # Update trade
         _update_trade_result(conn, trade_id, status, pnl)
+        notify_resolved(
+            trade.get("market_slug"),
+            market_id,
+            bin_label,
+            outcome,
+            status,
+            pnl,
+        )
 
         logger.info(
             f"[resolver] {bin_label} → {status} | "
@@ -137,20 +144,29 @@ def _fetch_market_result(market_id: str) -> tuple[bool, str] | None:
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
-def _get_open_past_resolve(conn) -> list[dict]:
+def _get_trades_ready_to_resolve(conn) -> list[dict]:
     """
-    Get open trades where the market should have resolved by now.
-    Uses created_at + 24h as a proxy for resolve time
-    (markets resolve within 24h of creation).
+    Get unresolved trades where Gamma endDate is at least 5 minutes old.
+
+    Older rows may not have market_end_date yet, so keep the previous
+    created_at fallback until those trades age out.
     """
     cur = conn.cursor()
     cur.execute("""
         SELECT id, city_id, market_config_id, market_id,
-               bin_label, yes_price, amount_usd, status, created_at
+               market_slug, market_end_date, bin_label, yes_price,
+               amount_usd, status, created_at
         FROM trades
-        WHERE status = 'open'
-          AND created_at < NOW() - INTERVAL '12 hours'
-        ORDER BY created_at ASC
+        WHERE status IN ('open', 'dry_run')
+          AND resolved_at IS NULL
+          AND (
+              (market_end_date IS NOT NULL
+               AND market_end_date <= NOW() - INTERVAL '5 minutes')
+              OR
+              (market_end_date IS NULL
+               AND created_at < NOW() - INTERVAL '12 hours')
+          )
+        ORDER BY COALESCE(market_end_date, created_at) ASC
     """)
     return cur.fetchall()
 
@@ -162,8 +178,9 @@ def _update_trade_result(conn, trade_id, status: str, pnl: float):
         UPDATE trades
         SET status = %s,
             pnl = %s,
-            resolved_at = NOW()
+            resolved_at = NOW(),
+            updated_at = NOW()
         WHERE id = %s
-          AND status = 'open'
+          AND status IN ('open', 'dry_run')
     """, (status, pnl, str(trade_id)))
     conn.commit()

@@ -62,6 +62,7 @@ cp .env.example .env
 ### 3. Derive Polymarket API credentials (first time)
 
 ```bash
+# Set POLY_SIGNATURE_TYPE and DEPOSIT_WALLET_ADDRESS first.
 python -m scheduler.core.executor
 # Prints POLY_API_KEY, POLY_SECRET, POLY_PASSPHRASE → save to .env
 ```
@@ -112,7 +113,7 @@ Services จะ start ตามลำดับ: `db` (wait healthy) → `schedul
 | Job | Interval | Description |
 |-----|----------|-------------|
 | `normal` | 30 min | Standard estimation + order cycle |
-| `resolver` | 30 min (offset 15m) | Settle resolved trades, calculate PnL |
+| `resolver` | 5 min | Settle trades after Gamma `endDate` + 5m, calculate PnL |
 | `taf_*` | 5 min windows | Frequent checks around TAF release times |
 
 ## Trading Rules

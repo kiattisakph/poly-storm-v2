@@ -21,6 +21,7 @@ def check_entry_gate(
     triggered_by_taf: bool,
     city_timezone: str,
     require_taf: bool = True,
+    target_date: datetime | None = None,
 ) -> tuple[bool, str]:
     """
     Entry gate rules:
@@ -30,6 +31,21 @@ def check_entry_gate(
     """
     if require_taf and (taf is None or taf.tx_temp is None):
         return False, "no TAF TX available — model-only, skip"
+
+    if (
+        require_taf
+        and target_date is not None
+        and taf is not None
+    ):
+        if taf.tx_day != target_date.day:
+            return False, (
+                "TAF TX date mismatch "
+                f"(tx_day={taf.tx_day}, target={target_date.date().isoformat()})"
+            )
+        return True, (
+            "TAF TX matches target date "
+            f"(tx_day={taf.tx_day}, target={target_date.date().isoformat()})"
+        )
 
     if triggered_by_taf and taf_changed:
         return True, "TAF TX changed → immediate entry"

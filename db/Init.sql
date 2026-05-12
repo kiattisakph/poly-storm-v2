@@ -41,19 +41,28 @@ CREATE TABLE IF NOT EXISTS trades (
     market_config_id UUID         REFERENCES market_configs(id),
     market_id        VARCHAR(100) NOT NULL,
     market_slug      VARCHAR(200),
+    market_date      DATE,
+    market_end_date  TIMESTAMPTZ,
     bin_label        VARCHAR(20)  NOT NULL,
     temp_estimate    FLOAT        NOT NULL,
     yes_price        FLOAT        NOT NULL,
     amount_usd       FLOAT        NOT NULL DEFAULT 2.0,
     status           VARCHAR(20)  NOT NULL DEFAULT 'open',
-    skip_reason      VARCHAR(100),
+    skip_reason      TEXT,
     resolved_at      TIMESTAMPTZ,
     pnl              FLOAT,
+    updated_at       TIMESTAMPTZ  DEFAULT NOW(),
     created_at       TIMESTAMPTZ  DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_market_slug
 ON trades (city_id, market_config_id, market_slug, status);
+
+CREATE INDEX IF NOT EXISTS idx_trades_market_end_date
+ON trades (status, market_end_date);
+
+CREATE INDEX IF NOT EXISTS idx_trades_market_date
+ON trades (city_id, market_config_id, market_date, status);
 
 -- run log
 CREATE TABLE IF NOT EXISTS run_logs (

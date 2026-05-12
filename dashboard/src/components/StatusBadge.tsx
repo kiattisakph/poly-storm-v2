@@ -6,6 +6,7 @@ const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
   open:    { bg: "#E6F1FB", text: "#185FA5" },
   skipped: { bg: "#F1EFE8", text: "#5F5E5A" },
   failed:  { bg: "#FCEBEB", text: "#A32D2D" },
+  closed:  { bg: "#F1EFE8", text: "#5F5E5A" },
   active:  { bg: "#EAF3DE", text: "#3B6D11" },
   paused:  { bg: "#F1EFE8", text: "#5F5E5A" },
 }
